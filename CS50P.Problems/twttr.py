@@ -1,12 +1,13 @@
 def main():
     tweet = input("Input: ")
-    print("Output: ", short(tweet))
+    print("Output: ", shorten(tweet))
 
-def short(text):
+def shorten(word):
     result = ""
-    for n in text:
+    for n in word:
         if n.lower() not in "aeiou":
             result += n
     return result
 
-main()
+if __name__ == "__main__":
+    main()
