@@ -18,5 +18,5 @@ def armor():
             print("Not a valid item")
 
     print(f"Total budget: ${budget:.2f}")
-if __name__ == "__main__":
-    armor()
+
+armor()

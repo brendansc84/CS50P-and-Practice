@@ -10,10 +10,10 @@ def main():
         font = random.choice(fonts)
     elif len(sys.argv) == 3 and sys.argv[1] in ["-f", "--font"]:
         if sys.argv[2] not in fonts:
-            sys.exit()
+            sys.exit(1)
         font = sys.argv[2]
     else:
-        sys.exit
+        sys.exit(1)
 
     text = input("Input: ")
     figlet = pyfiglet.Figlet(font=font)
