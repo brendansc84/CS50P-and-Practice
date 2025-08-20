@@ -56,7 +56,7 @@ def save_log(seen: set[str]):
 def save_msg(mail, dest_folder: Path, subject: str):
     fname = safe_folder_name(subject) or "message"
     msg_path = dest_folder / f"{fname}.msg"
-    mail.SaveAs(str(msg_path), 3)  # 3 = olMSG
+    mail.SaveAs(str(msg_path), 3)
     return msg_path
 
 def save_and_extract_zips(mail, dest_folder: Path):
@@ -108,7 +108,7 @@ def process_folder():
     processed = 0
 
     for mail in items:
-        if getattr(mail, "Class", None) != 43:  # 43 = olMail
+        if getattr(mail, "Class", None) != 43:
             continue
 
         if getattr(mail, "UnRead", False) is False:
