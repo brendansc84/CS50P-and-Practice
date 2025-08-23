@@ -8,6 +8,10 @@ def main():
 
     filename = sys.argv[1]
 
+    # the gd file type issue
+    if not filename.lower().endswith(".py"):
+        sys.exit("Not a Python file")
+
     try:
         with open(filename, "r") as file:
             lines = file.readlines()
@@ -16,8 +20,8 @@ def main():
 
     count = 0
     for line in lines:
-        line = line.strip()
-        if line == "" or line.startswith("#"):
+        stripped = line.lstrip()
+        if stripped == "" or stripped.startswith("#"):
             continue
         count += 1
 
