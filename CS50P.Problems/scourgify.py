@@ -12,7 +12,7 @@ def main():
 
     try:
         with open(inpath, encoding="utf-8-sig") as infile, \
-             open(outpath, "w", newline="") as outfile:
+            open(outpath, "w", newline="") as outfile:
             reader = csv.DictReader(infile)
             writer = csv.DictWriter(outfile, fieldnames=["first", "last", "house"])
             writer.writeheader()
