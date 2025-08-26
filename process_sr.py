@@ -1,9 +1,10 @@
-import os, re, json, zipfile, sys
+import os, re, json, zipfile, sys, time
 from pathlib import Path
 import win32com.client
 import pythoncom
 from contextlib import contextmanager
 
+# ---------- Runtime paths (EXE-safe) ----------
 def runtime_dir() -> Path:
     # When frozen (PyInstaller), write beside the EXE; otherwise beside the .py
     if getattr(sys, "frozen", False):
@@ -11,11 +12,23 @@ def runtime_dir() -> Path:
     return Path(__file__).parent
 
 RUNTIME_DIR = runtime_dir()
-LOCK_PATH = RUNTIME_DIR / "process_sr.lock"                   # lock beside the exe/py
-LOG_PATH  = RUNTIME_DIR / "processed_sr_entryids.json"        # seen cache beside the exe/py
+LOCK_PATH = RUNTIME_DIR / "process_sr.lock"                   # lock beside exe/py
+LOG_PATH  = RUNTIME_DIR / "processed_sr_entryids.json"        # seen cache beside exe/py
+
+LOCK_MAX_AGE_SECS = 15 * 60  # auto-clear stale lock after 15 minutes
 
 @contextmanager
 def single_instance_lock():
+    # Clear stale lock if the previous run crashed or was killed
+    try:
+        if LOCK_PATH.exists():
+            age = time.time() - LOCK_PATH.stat().st_mtime
+            if age > LOCK_MAX_AGE_SECS:
+                print(f"Stale lock ({int(age)}s). Removing {LOCK_PATH.name}.")
+                LOCK_PATH.unlink(missing_ok=True)
+    except Exception:
+        pass
+
     try:
         fd = os.open(LOCK_PATH, os.O_CREAT | os.O_EXCL | os.O_RDWR)
     except FileExistsError:
@@ -31,43 +44,36 @@ def single_instance_lock():
             pass
 
 
-# CONFIG
+# ---------- CONFIG ----------
 BASE_DIR = r"\\CA0002-PPFSS01\workgroup\1566\active\156660046\Kearl\Survey Requests"
-MAIL_FOLDER = "Inbox"  # optional; see resolve_mail_folder if you want subfolders
-SR_SUBJECT_PATTERN = re.compile(r"\bSR\d{8,}\b", re.I)
+OL_FOLDER_INBOX = 6
 MAX_NAME = 150
 
-# UTILITIES
+# SR number anywhere in subject
+SR_SUBJECT_PATTERN = re.compile(r"\bSR\d{8,}\b", re.I)
+# Replies only (you asked to exclude replies, not forwards)
+RE_PREFIX = re.compile(r'^\s*RE\s*(\[\d+\])?\s*:', re.I)
+
+
+# ---------- Utilities ----------
 INVALID_FS_CHARS = r'<>:"/\|?*'
 TRANS = str.maketrans({c: " " for c in INVALID_FS_CHARS})
 
-PREFIX_RE = re.compile(r'^\s*((RE|FW|FWD)\s*:)+\s*', re.I)
-
-def strip_fw_re(s: str) -> str:
-    return PREFIX_RE.sub('', s or '')
-
-def extract_sr_id(s: str) -> str | None:
-    m = SR_SUBJECT_PATTERN.search(s or '')
-    return m.group(0).upper() if m else None
-
-def safe_folder_name(subject: str) -> str:
-    clean = subject.translate(TRANS).strip()
+def safe_folder_name(text: str) -> str:
+    clean = (text or "").translate(TRANS).strip()
     clean = re.sub(r"\s+", " ", clean)
-    return clean[:MAX_NAME].rstrip(" .")
+    # Windows path safety: trim length and trailing dots/spaces
+    return clean[:MAX_NAME].rstrip(" .") or "message"
 
 def safe_file_name(name: str) -> str:
-    # Strip any path components and sanitize for Windows
-    base = Path(name).name.translate(TRANS).strip().rstrip(" .")
+    base = Path(name or "attachment").name.translate(TRANS).strip().rstrip(" .")
     base = re.sub(r"\s+", " ", base)
-    if not base:
-        base = "attachment"
-    return base[:MAX_NAME]
+    return (base or "attachment")[:MAX_NAME]
 
 def ensure_dir(path: Path):
     path.mkdir(parents=True, exist_ok=True)
 
 def unique_path(p: Path) -> Path:
-    """Return a unique path (adds _2, _3, ... before suffix if needed)."""
     if not p.exists():
         return p
     stem, suffix = p.stem, p.suffix
@@ -79,10 +85,6 @@ def unique_path(p: Path) -> Path:
         i += 1
 
 def secure_extract_member(zf: zipfile.ZipFile, member: zipfile.ZipInfo, dest: Path):
-    """
-    Safely extract a single ZipInfo to dest, avoiding zip-slip.
-    Returns path written or None if skipped (dir or unsafe).
-    """
     if member.is_dir():
         return None
     fname = Path(member.filename).name  # drop folders in zip
@@ -119,11 +121,8 @@ def save_msg(mail, dest_folder: Path, subject: str):
 
 def save_attachments(mail, dest_folder: Path):
     """
-    Saves all attachments. For .zip files:
-      - saves the zip
-      - extracts its contents into dest_folder
-      - deletes the zip file after extraction
-    Returns list of saved attachment file paths (post-dedup), excluding extracted files.
+    Save all attachments. If .zip: extract contents to dest and delete the zip.
+    Returns list of saved non-zip attachment paths (strings).
     """
     saved = []
     for att in mail.Attachments:
@@ -150,82 +149,76 @@ def save_attachments(mail, dest_folder: Path):
             print(f"  ! Failed to save attachment {clean_name}: {e}")
     return saved
 
-OL_FOLDER_INBOX = 6
 
-def resolve_mail_folder(namespace, path: str):
-    folder = namespace.GetDefaultFolder(OL_FOLDER_INBOX)
-    norm = path.strip().strip("\\")
-    if norm.lower() == "inbox":
-        return folder
-    parts = norm.split("\\")
-    if parts and parts[0].lower() == "inbox":
-        parts = parts[1:]
-    for part in parts:
-        folder = folder.Folders.Item(part)
-    return folder
-
-# MAIN
+# ---------- MAIN ----------
 def process_folder():
     pythoncom.CoInitialize()
-    outlook = win32com.client.Dispatch("Outlook.Application").GetNamespace("MAPI")
-    folder = outlook.GetDefaultFolder(OL_FOLDER_INBOX)  # or resolve_mail_folder(outlook, MAIL_FOLDER)
+    try:
+        outlook = win32com.client.Dispatch("Outlook.Application").GetNamespace("MAPI")
+        folder = outlook.GetDefaultFolder(OL_FOLDER_INBOX)
 
-    items = folder.Items
-    items.Sort("[ReceivedTime]", True)
+        items = folder.Items
+        items.Sort("[ReceivedTime]", True)
+        items = items.Restrict("[Unread] = True")  # minor speed-up
 
-    seen = load_log()
-    processed = 0
+        seen = load_log()
+        processed = 0
 
-    for mail in items:
-        if getattr(mail, "Class", None) != 43:  # 43 = MailItem
-            continue
-        if getattr(mail, "UnRead", False) is False:
-            continue
+        for mail in items:
+            if getattr(mail, "Class", None) != 43:  # 43 = MailItem
+                continue
 
-        try:
-            subject = str(mail.Subject)
-            entry_id = str(mail.EntryID)
-        except Exception:
-            continue
+            try:
+                subject = str(mail.Subject)
+                entry_id = str(mail.EntryID)
+            except Exception:
+                continue
 
-        if entry_id in seen:
-            continue
-        if not SR_SUBJECT_PATTERN.search(subject):
-            continue
+            # Must contain an SR####..., and must NOT be a reply (Re:)
+            if not SR_SUBJECT_PATTERN.search(subject):
+                continue
+            if RE_PREFIX.search(subject):
+                # Skip replies as requested
+                continue
 
-        clean_subject = strip_fw_re(subject)
-        sr_id = extract_sr_id(clean_subject)
-        dest_name = sr_id if sr_id else safe_folder_name(clean_subject)
-        dest = Path(BASE_DIR) / dest_name
-        ensure_dir(dest)
+            if entry_id in seen:
+                continue
 
-        print(f"Processing: {subject} -> [{dest_name}]")
+            # Use the FULL subject for the folder name
+            dest_name = safe_folder_name(subject)
+            dest = Path(BASE_DIR) / dest_name
+            ensure_dir(dest)
 
-        try:
-            save_msg(mail, dest, clean_subject)
-        except Exception as e:
-            print(f"  ! Failed to save .msg: {e}")
+            print(f"Processing: {subject} -> [{dest_name}]")
 
-        try:
-            saved_non_zips = save_attachments(mail, dest)
-            if saved_non_zips:
-                print(f"  Saved attachments: {', '.join(Path(p).name for p in saved_non_zips)}")
-            else:
-                print("  No non-zip attachments saved (zips extracted & deleted, or no attachments).")
-        except Exception as e:
-            print(f"  ! Failed to handle attachments: {e}")
+            try:
+                save_msg(mail, dest, subject)
+            except Exception as e:
+                print(f"  ! Failed to save .msg: {e}")
 
-        try:
-            mail.UnRead = False
-            mail.Save()
-        except Exception:
-            pass
+            try:
+                saved_non_zips = save_attachments(mail, dest)
+                if saved_non_zips:
+                    print(f"  Saved attachments: {', '.join(Path(p).name for p in saved_non_zips)}")
+                else:
+                    print("  No non-zip attachments saved (zips extracted & deleted, or no attachments).")
+            except Exception as e:
+                print(f"  ! Failed to handle attachments: {e}")
 
-        seen.add(entry_id)
-        processed += 1
+            try:
+                mail.UnRead = False
+                mail.Save()
+            except Exception:
+                pass
 
-    save_log(seen)
-    print(f"Done. Processed {processed} message(s).")
+            seen.add(entry_id)
+            processed += 1
+
+        save_log(seen)
+        print(f"Done. Processed {processed} message(s).")
+    finally:
+        pythoncom.CoUninitialize()
+
 
 if __name__ == "__main__":
     with single_instance_lock():
