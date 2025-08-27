@@ -1,0 +1,73 @@
+REGEX CHEAT SHEET
+
+Anchors
+^       Start of string
+$       End of string
+\A      Start of string (absolute, even multiline)
+\Z      End of string (absolute, even multiline)
+\b      Word boundary
+\B      Non-word boundary
+
+Quantifiers
+*       0 or more
++       1 or more
+?       0 or 1
+{m}     Exactly m
+{m,n}   Between m and n
+*?      Lazy 0 or more
++?      Lazy 1 or more
+??      Lazy 0 or 1
+{m,n}?  Lazy between m and n
+
+Character Classes
+.       Any character except newline
+[abc]   a, b, or c
+[^abc]  Not a, b, or c
+[a-z]   Lowercase letter
+[A-Z]   Uppercase letter
+[0-9]   Digit
+
+Shortcuts
+\d      Digit (0-9)
+\D      Non-digit
+\w      Word character (letters, digits, underscore)
+\W      Non-word character
+\s      Whitespace (space, tab, newline)
+\S      Non-whitespace
+
+Groups and Alternation
+(abc)        Capturing group
+(?:abc)      Non-capturing group
+(?P<name>)   Named group (Python)
+\1, \2       Backreference to group 1, 2, etc.
+|            Either/or (alternation)
+
+Lookarounds
+(?=abc)      Positive lookahead (followed by abc)
+(?!abc)      Negative lookahead (not followed by abc)
+(?<=abc)     Positive lookbehind (preceded by abc)
+(?<!abc)     Negative lookbehind (not preceded by abc)
+
+Escapes and Special
+\.      Literal dot
+\?      Literal question mark
+\*      Literal asterisk
+\\      Literal backslash
+\n      Newline
+\t      Tab
+
+Modes and Flags
+(?i)    Case-insensitive (or re.IGNORECASE)
+(?m)    Multiline mode (^ and $ match per line)
+(?s)    Dotall mode (. matches newline)
+(?x)    Verbose mode (whitespace + comments allowed)
+
+Comments
+(?# comment )     Inline comment
+#                With re.VERBOSE, use # for full-line comments
+
+Tips
+["']     Match either single or double quote
+(abc)?   Optional group
+(abc)+   Group repeated one or more times
+(?!foo). Match any character not followed by "foo"

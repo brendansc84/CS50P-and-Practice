@@ -293,3 +293,7 @@ def even_counter(numbers):
 
 print(even_counter("5,6,7,8,10,11"))
 '''
+
+text = "FLIGHT"
+for i, ch in enumerate(text, 1):
+    print(ch, i)
