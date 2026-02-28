@@ -32,7 +32,15 @@ for n in li:
     print(x)
 '''
 # 4-9 Cube list comp
-cubes = [n**3 for n in range(1, 11)]
-print(cubes)
+'''cubes = [n**3 for n in range(1, 11)]
+print(cubes)'''
 
 # FUCKING NAILED IT!!!! Only ish, couldn't get cube comp to print vertical, but hella minor.
+
+current_number = 0
+while current_number < 10:
+    current_number += 1
+    if current_number % 2 == 0:
+        continue
+
+    print(current_number)
